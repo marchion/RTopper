@@ -1,0 +1,14 @@
+citHeader("To cite the RTopper package in publications use:")
+
+citEntry(entry="article",
+  year =	2011,
+  author = "Svitlana Tyekucheva, Luigi Marchionni, Rachel Karchin, and Giovanni Parmigiani",
+  title = "Integrating diverse genomic data using gene sets",
+  journal = "Genome Biology",
+  volume = "In Press",
+  textVersion = paste(
+ "Integrating diverse genomic data using gene sets",
+ "Svitlana Tyekucheva, Luigi Marchionni, Rachel Karchin, and Giovanni Parmigiani",
+  "In Press, Genome Biology, 2011")
+)
+   

@@ -1,0 +1,15 @@
+###IMPORT
+import(Biobase)
+
+###IMPORT FROM
+importFrom(limma, geneSetTest)
+importFrom(limma, wilcoxGST)
+importFrom(multtest, mt.rawp2adjp)
+
+###EXPORT
+export(convertToDr,
+	computeDrStat,
+	runBatchGSE,
+	combineGSE,
+	adjustPvalGSE
+)

@@ -1,0 +1,1090 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Luigi Marchionni
+%% August 21 2008
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%% Begin Document
+\documentclass[11pt]{article}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%% Preamble
+\input{preamble}
+
+%% Document layout
+\parindent 0in
+\setpapersize{USletter}
+\setmarginsrb{1truein}{0.5truein}{1truein}{0.5truein}{16pt}{30pt}{0pt}{20truept}
+\setlength{\emergencystretch}{2em}
+
+\usepackage{Sweave}
+
+%\VignetteIndexEntry{RTopper user's manual}
+
+%% New commands for R stuff
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{\texttt{#1}}}
+\newcommand{\Rclass}[1]{{\texttt{#1}}}
+\newcommand{\Rmethod}[1]{{\texttt{#1}}}
+\newcommand{\Rfunarg}[1]{{\texttt{#1}}}
+
+\begin{document}
+
+\title{The RTopper package: perform run Gene Set Enrichment across genomic platforms}
+
+\author{Luigi Marchionni \\
+Department of Oncology \\
+Johns Hopkins University \\
+email: \texttt{marchion@jhu.edu}}
+
+\singlespacing
+\maketitle
+\tableofcontents
+
+
+\section{Overview}
+Gene Set Enrichment (GSE) analysis has been widely use to assist the  interpretation
+of gene expression data. We propose here to apply GSE for the integration of genomic 
+data obtained from distinct analytical platform.
+
+In the present implementation of the \Rpackage{RTopper} GSE analysis is performed
+using the \Rfunction{geneSetTest} function from the \Rpackage{limma} package
+\cite{Smyth2005a,Smyth2004,Smyth2005}.
+This function enables testing the hypothesis that a specific set of genes
+(a Functional Gene Set, FGS) is more highly ranked on a given statistics.
+In particular this functions computes a p-value for each FGS by one 
+or two-sided Wilcoxon rank-sum test. Alternative user-defined functions
+can also be used.
+
+Furthermore multiple hypothesis testing correction is achieved by
+applying the Benjamini and Hochberg method \cite{Benjamini1995}
+as implemented in the \Rpackage{multtest} R/Bioconductor package.
+Overall, this approach is conceptually analogous to Gene Set Enrichment Analysis (GSEA),
+as proposed by Mootha and colleagues \cite{Mootha2003a,Subramanian2005}.
+
+The integration can be achieved through two distinct approaches:
+\begin{enumerate}
+\item {\bf GSE + INTEGRATION}: Separate GSE analysisn on the 
+  individual genomic platforms followed by GSE results integration;
+\item {\bf INTEGRATION + GSE}: Integration of genomic data measurement 
+  using a logistic model followed by GSE analysis;
+\end{enumerate}
+
+\section{RTopper data structure}
+In this tutorial we demonstrate the functionality of \Rpackage{RTopper} package.
+To this end we will make use of simplified data generated within 
+The Cancer Genome Atlas (TCGA) project,
+using Glioblastoma Multiforme (GBM) genomics data obtained from the same
+patients' cohort using distinct platforms, including Differential Gene Expression (DGE),
+Copy Number Variation (CNV), and Differential Methylation (DM).
+This data is included with the \Rpackage{RTopper} package as the dataset \texttt{exampleData},
+which consists of genomic measurements (the list \Robject{dat}) 
+for 500 genes (in rows) and 95 patients (in columns) from 4 distinct platforms:
+\begin{enumerate}
+  \item DGE obtained using Affymetrix;
+  \item DGE obtained using Agilent;
+  \item CNV data generated ad Harvard;
+  \item CNV data generated ad the MSKCC;
+\end{enumerate}
+
+The phenotypic class for each patient is defined in the a data.frame \Robject{pheno}
+consisting of 95 rows (patients, {\it pheno\$Sample}) and 2 columns, the first being patients identifiers,
+and the second variable giving the group indicator ({\it pheno\$Class}).
+
+To load the data set type \texttt{data(exampleData)}, and to view a description of this 
+data type \texttt{?exampleData}. The structure of the data is shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> library(RTopper)
+> data(exampleData)
+> ls()
+\end{Sinput}
+\begin{Soutput}
+[1] "dat"   "pheno"
+\end{Soutput}
+\begin{Sinput}
+> class(dat)
+\end{Sinput}
+\begin{Soutput}
+[1] "list"
+\end{Soutput}
+\begin{Sinput}
+> names(dat)
+\end{Sinput}
+\begin{Soutput}
+[1] "dat.affy"       "dat.agilent"    "dat.cnvHarvard"
+[4] "dat.cnvMskcc"  
+\end{Soutput}
+\begin{Sinput}
+> sapply(dat,class)
+\end{Sinput}
+\begin{Soutput}
+      dat.affy    dat.agilent dat.cnvHarvard   dat.cnvMskcc 
+  "data.frame"   "data.frame"   "data.frame"   "data.frame" 
+\end{Soutput}
+\begin{Sinput}
+> sapply(dat,dim)
+\end{Sinput}
+\begin{Soutput}
+     dat.affy dat.agilent dat.cnvHarvard dat.cnvMskcc
+[1,]      500         500            500          500
+[2,]       95          95             95           95
+\end{Soutput}
+\begin{Sinput}
+> dim(pheno)
+\end{Sinput}
+\begin{Soutput}
+[1] 95  2
+\end{Soutput}
+\begin{Sinput}
+> str(pheno)
+\end{Sinput}
+\begin{Soutput}
+'data.frame':	95 obs. of  2 variables:
+ $ Sample: chr  "TCGA.02.0003" "TCGA.02.0007" "TCGA.02.0011" "TCGA.02.0021" ...
+ $ Class : int  0 0 1 1 0 0 0 0 0 0 ...
+\end{Soutput}
+\end{Schunk}
+
+In summary to perform the analysis with functions from \Rpackage{RTopper}
+the genomic data used as input must be in the following format:
+\begin{enumerate}
+ \item {\bf Genomic measurements}: a list of data.frames, in which each list item corresponds 
+  to a genomic platform, and comprises a data.frame with rows being genes and columns patients;
+ \item {\bf Phenotype data}: a data.frame with 2 columns: patients and their phenotypes;
+ \item The number of columns of the {\it Genomic measurements} data.frames must match the number
+   of rows of the {\it Phenotype data};
+ \item The same set of genes must be measured in each platform and gene labels must be stored as rownames;
+\end{enumerate}
+
+Below are shown the first 6 rows and 4  columns of each data.frame contained in \texttt{dat},
+which share the same genes (shown for some of the possible combinations).
+Similarly column names in the \Robject{dat} data.frames correspond to rownames of \Robject{pheno}.
+
+\begin{Schunk}
+\begin{Sinput}
+> ###data structure
+> lapply(dat,function(x) head(x)[,1:3])
+\end{Sinput}
+\begin{Soutput}
+$dat.affy
+      TCGA.02.0003 TCGA.02.0007 TCGA.02.0011
+AACS      7.747995     7.685409     7.535661
+AARS      9.381544     9.930156    10.197194
+ABI1      8.173255     8.962803     9.895811
+ACHE      5.127197     4.547297     5.146552
+ACTC1     6.612645     5.825879     8.067945
+ACTN2     6.257383     5.330557     5.842319
+
+$dat.agilent
+      TCGA.02.0003 TCGA.02.0007 TCGA.02.0011
+AACS    -1.0070000   -1.1164000    -0.913000
+AARS    -1.2665000   -0.8981250     0.263500
+ABI1    -0.2765000    0.3356250     1.027250
+ACHE     0.4403750   -0.0222500     0.115000
+ACTC1    0.3641538    0.1234615     1.046692
+ACTN2    4.3348000    2.2278000     3.330600
+
+$dat.cnvHarvard
+      TCGA.02.0003 TCGA.02.0007 TCGA.02.0011
+AACS   -0.08273213  -0.08917331  -0.02075644
+AARS   -0.10233281  -0.20620608  -0.05157664
+ABI1   -0.86886659  -0.01214599   0.59307754
+ACHE    0.31560002  -1.00166150  -0.14519639
+ACTC1  -1.17495078  -0.26698279  -0.95662761
+ACTN2  -0.11319016  -0.09657971   0.02582138
+
+$dat.cnvMskcc
+      TCGA.02.0003 TCGA.02.0007 TCGA.02.0011
+AACS    -0.0383875  -0.09140000  0.008233333
+AARS     0.0075600   0.02801667  0.104850000
+ABI1    -0.7006900   0.21270000  0.499472727
+ACHE     0.8676000  -0.23970000  0.075000000
+ACTC1   -0.9779500  -0.11625000 -0.692950000
+ACTN2   -0.1258571  -0.05394444  0.010200000
+\end{Soutput}
+\begin{Sinput}
+> sum(rownames(dat[[1]])%in%rownames(dat[[2]]))
+\end{Sinput}
+\begin{Soutput}
+[1] 500
+\end{Soutput}
+\begin{Sinput}
+> sum(rownames(dat[[2]])%in%rownames(dat[[3]]))
+\end{Sinput}
+\begin{Soutput}
+[1] 500
+\end{Soutput}
+\end{Schunk}
+
+\subsection{Creation of Functional Gene Sets}
+Functional Gene Sets (FGS) are list of genes that share a specific biological function.
+Examples of FGS are genes that operate in the same signaling pathway 
+({\it i.e.} Notch signaling genes), or that share the same biological function
+({\it i.e.} Cell adhesion genes).
+FGS can be retrieved from various database, or can be construncted {\it ad hoc}.
+A convenient source of FGS are the R-Bioconductor metaData packages,
+and S4 classes and methods for handling FGS are provided by the \Rpackage{GSEABase}
+package. Below is shown a simple way to extract FGS from the human genome
+metaData package \Rpackage{org.Hs.eg.db}.
+As a general rule the name of the metaData package, without the \texttt{.db} extension,
+can be used a function to see the content of the package, as shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> library(org.Hs.eg.db)
+> org.Hs.eg()
+\end{Sinput}
+\begin{Soutput}
+Quality control information for org.Hs.eg:
+
+
+This package has the following mappings:
+
+org.Hs.egACCNUM has 29598 mapped keys (of 45341 keys)
+org.Hs.egACCNUM2EG has 665642 mapped keys (of 665642 keys)
+org.Hs.egALIAS2EG has 112379 mapped keys (of 112379 keys)
+org.Hs.egCHR has 44908 mapped keys (of 45341 keys)
+org.Hs.egCHRLENGTHS has 93 mapped keys (of 93 keys)
+org.Hs.egCHRLOC has 22085 mapped keys (of 45341 keys)
+org.Hs.egCHRLOCEND has 22085 mapped keys (of 45341 keys)
+org.Hs.egENSEMBL has 19542 mapped keys (of 45341 keys)
+org.Hs.egENSEMBL2EG has 19948 mapped keys (of 19948 keys)
+org.Hs.egENSEMBLPROT has 19476 mapped keys (of 45341 keys)
+org.Hs.egENSEMBLPROT2EG has 83286 mapped keys (of 83286 keys)
+org.Hs.egENSEMBLTRANS has 19529 mapped keys (of 45341 keys)
+org.Hs.egENSEMBLTRANS2EG has 121860 mapped keys (of 121860 keys)
+org.Hs.egENZYME has 2232 mapped keys (of 45341 keys)
+org.Hs.egENZYME2EG has 975 mapped keys (of 975 keys)
+org.Hs.egGENENAME has 45341 mapped keys (of 45341 keys)
+org.Hs.egGO has 17814 mapped keys (of 45341 keys)
+org.Hs.egGO2ALLEGS has 14407 mapped keys (of 14407 keys)
+org.Hs.egGO2EG has 10981 mapped keys (of 10981 keys)
+org.Hs.egMAP has 35270 mapped keys (of 45341 keys)
+org.Hs.egMAP2EG has 2589 mapped keys (of 2589 keys)
+org.Hs.egOMIM has 14856 mapped keys (of 45341 keys)
+org.Hs.egOMIM2EG has 17661 mapped keys (of 17661 keys)
+org.Hs.egPATH has 5891 mapped keys (of 45341 keys)
+org.Hs.egPATH2EG has 229 mapped keys (of 229 keys)
+org.Hs.egPFAM has 22269 mapped keys (of 45341 keys)
+org.Hs.egPMID has 30319 mapped keys (of 45341 keys)
+org.Hs.egPMID2EG has 302146 mapped keys (of 302146 keys)
+org.Hs.egPROSITE has 22269 mapped keys (of 45341 keys)
+org.Hs.egREFSEQ has 28137 mapped keys (of 45341 keys)
+org.Hs.egREFSEQ2EG has 86715 mapped keys (of 86715 keys)
+org.Hs.egSYMBOL has 45341 mapped keys (of 45341 keys)
+org.Hs.egSYMBOL2EG has 45329 mapped keys (of 45329 keys)
+org.Hs.egUCSCKG has 20522 mapped keys (of 45341 keys)
+org.Hs.egUNIGENE has 23787 mapped keys (of 45341 keys)
+org.Hs.egUNIGENE2EG has 24453 mapped keys (of 24453 keys)
+org.Hs.egUNIPROT has 19163 mapped keys (of 45341 keys)
+
+
+Additional Information about this package:
+
+DB schema: HUMAN_DB
+DB schema version: 2.1
+Organism: Homo sapiens
+Date for NCBI data: 2011-Mar16
+Date for GO data: 20110312
+Date for KEGG data: 2011-Mar15
+Date for Golden Path data: 2010-Mar22
+Date for IPI data: 2011-Feb18
+Date for Ensembl data: 2011-Feb2
+\end{Soutput}
+\end{Schunk}
+
+For instance the \texttt{org.Hs.egGO2ALLEGS} environment contains the mapping
+of all ENTREZ Gene identifiers to the {\bf Gene Ontology Terms} \cite{Ashburner2000},
+while \texttt{org.Hs.egPATH2EG} maps the identifiers to {\bf KEGG} 
+pathways \cite{Kanehisa2004}.
+The corresponding lists of FGS can be retrieve from the corresponding environments
+using the the R command \texttt{as.list()}, as shown below for KEGG and GO:
+
+\begin{Schunk}
+\begin{Sinput}
+> kegg <- as.list(org.Hs.egPATH2EG)
+> go <- as.list(org.Hs.egGO2ALLEGS)
+> length(kegg)
+\end{Sinput}
+\begin{Soutput}
+[1] 229
+\end{Soutput}
+\begin{Sinput}
+> length(go)
+\end{Sinput}
+\begin{Soutput}
+[1] 14407
+\end{Soutput}
+\begin{Sinput}
+> str(kegg[1:5])
+\end{Sinput}
+\begin{Soutput}
+List of 5
+ $ 00010: chr [1:65] "124" "125" "126" "127" ...
+ $ 00020: chr [1:30] "47" "48" "50" "1431" ...
+ $ 00030: chr [1:27] "226" "229" "230" "2203" ...
+ $ 00040: chr [1:32] "217" "219" "224" "231" ...
+ $ 00051: chr [1:36] "226" "229" "230" "231" ...
+\end{Soutput}
+\begin{Sinput}
+> names(kegg)[1:5]
+\end{Sinput}
+\begin{Soutput}
+[1] "00010" "00020" "00030" "00040" "00051"
+\end{Soutput}
+\begin{Sinput}
+> str(go[1:5])
+\end{Sinput}
+\begin{Soutput}
+List of 5
+ $ GO:0000002: Named chr [1:11] "291" "1763" "1890" "4358" ...
+  ..- attr(*, "names")= chr [1:11] "TAS" "IDA" "TAS" "IMP" ...
+ $ GO:0000003: Named chr [1:1138] "18" "49" "49" "49" ...
+  ..- attr(*, "names")= chr [1:1138] "IEA" "IEA" "IMP" "ISS" ...
+ $ GO:0000012: Named chr [1:8] "3981" "7141" "7515" "54840" ...
+  ..- attr(*, "names")= chr [1:8] "IDA" "IDA" "IEA" "IDA" ...
+ $ GO:0000018: Named chr [1:29] "641" "641" "958" "2956" ...
+  ..- attr(*, "names")= chr [1:29] "IEA" "IMP" "IEA" "IDA" ...
+ $ GO:0000019: Named chr [1:4] "641" "4292" "4361" "10111"
+  ..- attr(*, "names")= chr [1:4] "IEA" "IEA" "TAS" "IDA"
+\end{Soutput}
+\begin{Sinput}
+> names(go)[1:5]
+\end{Sinput}
+\begin{Soutput}
+[1] "GO:0000002" "GO:0000003" "GO:0000012" "GO:0000018" "GO:0000019"
+\end{Soutput}
+\end{Schunk}
+
+In the \Robject{kegg} list genes are identified by their ENTREZ Gene identifiers,
+while in the \Robject{dat} genes are identified by their Gene Symbol.
+Below is an example of the code that can be used to perform the identifiers conversion,
+using only a subset of KEGG and GO FGS:
+
+\begin{Schunk}
+\begin{Sinput}
+> kegg <- lapply(kegg[sample(1:length(kegg),5)],function(x) unique(unlist(mget(x,org.Hs.egSYMBOL))))
+> go <- lapply(go[sample(1:length(go),5)],function(x) unique(unlist(mget(x,org.Hs.egSYMBOL))))
+> str(kegg)
+\end{Sinput}
+\begin{Soutput}
+List of 5
+ $ 00250: chr [1:32] "ABAT" "ADSL" "ADSS" "AGXT" ...
+ $ 00061: chr [1:6] "ACACA" "ACACB" "FASN" "MCAT" ...
+ $ 04620: chr [1:102] "AKT1" "AKT2" "CASP8" "CD14" ...
+ $ 04630: chr [1:155] "AKT1" "AKT2" "CCND1" "BCL2L1" ...
+ $ 00980: chr [1:71] "ADH1A" "ADH1B" "ADH1C" "ADH4" ...
+\end{Soutput}
+\begin{Sinput}
+> str(go)
+\end{Sinput}
+\begin{Soutput}
+List of 5
+ $ GO:0004915: chr [1:2] "IL6R" "IL6ST"
+ $ GO:0051902: chr [1:2] "BCL2" "IFI6"
+ $ GO:0005732: chr [1:13] "FBL" "NHP2L1" "RRP9" "SNRNP40" ...
+ $ GO:2000191: chr [1:14] "AKT1" "AKT2" "IL1B" "OXT" ...
+ $ GO:0004382: chr "ENTPD5"
+\end{Soutput}
+\end{Schunk}
+
+Finally, it is also possible to annotate FGS, mapping pathways identifiers to pathway names,
+as shown below for KEGG, using the \Rpackage{KEGG.db}.
+
+\begin{Schunk}
+\begin{Sinput}
+> library(KEGG.db)
+> KEGG()
+\end{Sinput}
+\begin{Soutput}
+Quality control information for KEGG:
+
+
+This package has the following mappings:
+
+KEGGENZYMEID2GO has 3922 mapped keys (of 3922 keys)
+KEGGEXTID2PATHID has 75100 mapped keys (of 75100 keys)
+KEGGGO2ENZYMEID has 3976 mapped keys (of 3976 keys)
+KEGGPATHID2EXTID has 3152 mapped keys (of 3152 keys)
+KEGGPATHID2NAME has 390 mapped keys (of 390 keys)
+KEGGPATHNAME2ID has 390 mapped keys (of 390 keys)
+
+
+Additional Information about this package:
+
+DB schema: KEGG_DB
+DB schema version: 2.1
+Date for KEGG data: 2011-Mar15
+\end{Soutput}
+\begin{Sinput}
+> names(kegg) <- paste(names(kegg),unlist(mget(names(kegg),KEGGPATHID2NAME)),sep=".")
+> names(kegg)
+\end{Sinput}
+\begin{Soutput}
+[1] "00250.Alanine, aspartate and glutamate metabolism" 
+[2] "00061.Fatty acid biosynthesis"                     
+[3] "04620.Toll-like receptor signaling pathway"        
+[4] "04630.Jak-STAT signaling pathway"                  
+[5] "00980.Metabolism of xenobiotics by cytochrome P450"
+\end{Soutput}
+\end{Schunk}
+
+Similarly GO Terms can be retrieved from the \Rpackage{GO.db}
+(please refer to the vignettes of the corresponding packages for details).
+
+\begin{Schunk}
+\begin{Sinput}
+> library(GO.db)
+> GO()
+\end{Sinput}
+\begin{Soutput}
+Quality control information for GO:
+
+
+This package has the following mappings:
+
+GOBPANCESTOR has 20443 mapped keys (of 20443 keys)
+GOBPCHILDREN has 11741 mapped keys (of 20443 keys)
+GOBPOFFSPRING has 11741 mapped keys (of 20443 keys)
+GOBPPARENTS has 20443 mapped keys (of 20443 keys)
+GOCCANCESTOR has 2811 mapped keys (of 2811 keys)
+GOCCCHILDREN has 963 mapped keys (of 2811 keys)
+GOCCOFFSPRING has 963 mapped keys (of 2811 keys)
+GOCCPARENTS has 2811 mapped keys (of 2811 keys)
+GOMFANCESTOR has 9000 mapped keys (of 9000 keys)
+GOMFCHILDREN has 1834 mapped keys (of 9000 keys)
+GOMFOFFSPRING has 1834 mapped keys (of 9000 keys)
+GOMFPARENTS has 9000 mapped keys (of 9000 keys)
+GOOBSOLETE has 1545 mapped keys (of 1545 keys)
+GOTERM has 32255 mapped keys (of 32255 keys)
+
+
+Additional Information about this package:
+
+DB schema: GO_DB
+DB schema version: 2.1
+Date for GO data: 20110312
+\end{Soutput}
+\begin{Sinput}
+> names(go) <- paste(names(go),Term(names(go)),sep=".")
+> names(go)
+\end{Sinput}
+\begin{Soutput}
+[1] "GO:0004915.interleukin-6 receptor activity"                    
+[2] "GO:0051902.negative regulation of mitochondrial depolarization"
+[3] "GO:0005732.small nucleolar ribonucleoprotein complex"          
+[4] "GO:2000191.regulation of fatty acid transport"                 
+[5] "GO:0004382.guanosine-diphosphatase activity"                   
+\end{Soutput}
+\end{Schunk}
+
+Finally we can be combine the two FGS collections into a named list for further used
+in GSE analysis (see below).
+
+\begin{Schunk}
+\begin{Sinput}
+> fgsList <- list(go=go,kegg=kegg)
+\end{Sinput}
+\end{Schunk}
+
+\section{Data analysis with RTopper}
+To compute gene-to-phenotype association scores the first step required 
+is the convertion of the data into a list, where each list item corresponds to a gene, 
+and comprises a data.frame with the rows being patients, and columns being measurements 
+for each data type, along with the class phenotype ({\it the response}).
+Importantly each element of the list with the data should have the same genes and patients.
+
+The \Rfunction{convertToDr} function is used to make such conversion.
+Below is a short description of the arguments to this function:
+\begin{itemize}
+  \item \Rfunarg{dataIntersection}: a list of data.frames containing the same set of patients(columns) and genes (rows)
+  \item \Rfunarg{response}: a data.frame indicating patients' phenotypic class;
+  \item \Rfunarg{nPlatforms}: the number of platforms;
+\end{itemize}
+
+This can be achieved as follows using our examples data:
+
+\begin{Schunk}
+\begin{Sinput}
+> dataDr <- convertToDr(dat, pheno, 4)
+> class(dataDr)
+\end{Sinput}
+\begin{Soutput}
+[1] "list"
+\end{Soutput}
+\begin{Sinput}
+> length(dataDr)
+\end{Sinput}
+\begin{Soutput}
+[1] 500
+\end{Soutput}
+\begin{Sinput}
+> names(dataDr)[1:5]
+\end{Sinput}
+\begin{Soutput}
+[1] "AACS"  "AARS"  "ABI1"  "ACHE"  "ACTC1"
+\end{Soutput}
+\begin{Sinput}
+> str(dataDr[1:2])
+\end{Sinput}
+\begin{Soutput}
+List of 2
+ $ AACS:'data.frame':	95 obs. of  5 variables:
+  ..$ dat.affy      : num [1:95] 7.75 7.69 7.54 7.3 7.01 ...
+  ..$ dat.agilent   : num [1:95] -1.007 -1.116 -0.913 -1.061 -1.775 ...
+  ..$ dat.cnvHarvard: num [1:95] -0.0827 -0.0892 -0.0208 -0.1811 -0.0625 ...
+  ..$ dat.cnvMskcc  : num [1:95] -0.03839 -0.0914 0.00823 0.03456 0.0573 ...
+  ..$ response      : int [1:95] 0 0 1 1 0 0 0 0 0 0 ...
+ $ AARS:'data.frame':	95 obs. of  5 variables:
+  ..$ dat.affy      : num [1:95] 9.38 9.93 10.2 9.54 9.37 ...
+  ..$ dat.agilent   : num [1:95] -1.266 -0.898 0.264 -0.599 -1.437 ...
+  ..$ dat.cnvHarvard: num [1:95] -0.1023 -0.2062 -0.0516 -0.0923 -0.1199 ...
+  ..$ dat.cnvMskcc  : num [1:95] 0.00756 0.02802 0.10485 0.0841 0.12262 ...
+  ..$ response      : int [1:95] 0 0 1 1 0 0 0 0 0 0 ...
+\end{Soutput}
+\end{Schunk}
+
+It is now possible to compute gene-to-phenotype association scores, using as input the
+gene-centered list produced by \Rfunction{convertToDr}.
+Therefore the \Rfunction{computeDrStat} function assumes that each gene-centered 
+data.frame contains a column (the last one) called \texttt{'response'}, 
+as created by the \Rfunction{convertToDr}.
+Below is a short description of the arguments to this function:
+
+\begin{itemize}
+  \item \Rfunarg{data}: a list of data.frames, one for each gene analyzed, contining the the genomic
+    measurements from all platforms (by column) for all the patients (by row), along with the phenotypic
+    response;
+  \item \Rfunarg{columns}: a numeric vector indicating column indexes corresponding the genomic measurements
+    to be used for computing the gene-to-phenotype association scores;
+    the default is \texttt{columns = c(1:(ncol(data) - 1))}, assuming the phenotypic response to be the last
+    column;
+  \item \Rfunarg{method}: the method used to compute the association score;
+  \item \Rfunarg{integrate}: logical, whether an integrated gene-to-phenotype score should be computed,
+    or separate scores for each platform/data sets specified by \Rfunarg{columns};
+  \end{itemize}
+
+In the current implementation of the \Rpackage{RTopper} there are three methods for computing 
+gene-to-phenotype association scores:
+\begin{enumerate}
+  \item \Rmethod{dev}: this approach computes the score as the difference of deviances
+    (as described in Tyekucheva et al, manuscript under review \cite{Tyekucheva2011});
+  \item \Rmethod{aic}: this approach computes the score as the Akaike information criterion
+    for model selection;
+  \item \Rmethod{bic}: this approach computes the score as the penalized likelihood ratio;
+\end{enumerate}
+
+\subsection{Integrated Gene-to-Phenotype score computation}
+This approach first integrates genomic data across platform, and subsequently
+perform GSE to identify the FGS most strongly associated with the integrated score.
+Below is an example of application to compute the gene-to-phenotype association
+scores for 4 data type simultaneously:
+
+\begin{Schunk}
+\begin{Sinput}
+> bicStatInt <- computeDrStat(dataDr, columns = c(1:4), method="bic", integrate = TRUE)
+> names(bicStatInt)
+\end{Sinput}
+\begin{Soutput}
+[1] "integrated"
+\end{Soutput}
+\begin{Sinput}
+> str(bicStatInt)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated: Named num [1:500] -11.43 -15.93 -8.85 -13.52 -7.26 ...
+  ..- attr(*, "names")= chr [1:500] "AACS" "AARS" "ABI1" "ACHE" ...
+\end{Soutput}
+\end{Schunk}
+
+%%%####HERE
+
+\subsection{Separate Gene-to-Phenotype score computation}
+This approach first computes computes gene-to-phenotype score separately for each platform,
+uses the scores to perform separate GSE analysis in each platform for identifying the FGS most 
+strongly associated with the score, and finally integrates the results from GSE analysis,
+Below is an example of this approach:
+
+\begin{Schunk}
+\begin{Sinput}
+> bicStatSep <- computeDrStat(dataDr, columns = c(1:4), method="bic", integrate = FALSE)
+> names(bicStatSep)
+\end{Sinput}
+\begin{Soutput}
+[1] "dat.affy"       "dat.agilent"    "dat.cnvHarvard"
+[4] "dat.cnvMskcc"  
+\end{Soutput}
+\begin{Sinput}
+> str(bicStatSep)
+\end{Sinput}
+\begin{Soutput}
+List of 4
+ $ dat.affy      : Named num [1:500] 0.545 -4.269 -2.334 -4.471 -3.625 ...
+  ..- attr(*, "names")= chr [1:500] "AACS" "AARS" "ABI1" "ACHE" ...
+ $ dat.agilent   : Named num [1:500] -3.57 -4.5 -3.66 -4.52 -1.05 ...
+  ..- attr(*, "names")= chr [1:500] "AACS" "AARS" "ABI1" "ACHE" ...
+ $ dat.cnvHarvard: Named num [1:500] -4.49 -3.64 3.13 -3.26 -2.57 ...
+  ..- attr(*, "names")= chr [1:500] "AACS" "AARS" "ABI1" "ACHE" ...
+ $ dat.cnvMskcc  : Named num [1:500] -4.53 -4.48 2.1 -2.55 -4.25 ...
+  ..- attr(*, "names")= chr [1:500] "AACS" "AARS" "ABI1" "ACHE" ...
+\end{Soutput}
+\end{Schunk}
+
+\subsection{Gene Set Enrichment using integrated and separate score}
+After the gene-to-phenotype scores have been obtained it is possible to perform
+a GSE analysis. To this end we will use the \Rfunction{runBatchGSE} function,
+as shown below. This function enables to perform GSE analysis over multiple collections
+of FGS, and over multiple ranking statistics.
+In the current implementation of the \Rfunction{runBatchGSE} the default is
+performing the enrichment analysis using the \Rfunction{geneSetTest} function 
+from the \Rpackage{limma} package, and most of the arguments passed to 
+\Rpackage{runBatchGSE} are indeed passed to \Rfunction{geneSetTest}
+(see the relative help for the details).
+
+As an alternative the user can also define his own function to test for FGS enrichment,
+passing the selection of genes within the FGS and the ranking ranking statistics
+in the same way as done for \Rfunction{geneSetTest}.
+In this tutorial we apply \Rfunction{geneSetTest} in order to perform a
+Wilcoxon rank-sum test, using the absolute value of the gene-to-phenotype scores 
+as the ranking statistics.
+
+\begin{Schunk}
+\begin{Sinput}
+> args(runBatchGSE)
+\end{Sinput}
+\begin{Soutput}
+function (dataList, fgsList, ...) 
+NULL
+\end{Soutput}
+\end{Schunk}
+
+Below a short description of the arguments that can be passed to this function:
+\begin{itemize}
+ \item \Rfunarg{dataList}: a list containing gene-to-phenotype scores to be used
+   as ranking statistics in the GSE analysis;
+ \item \Rfunarg{fgsList}: a list of FGS collection, in which each element is a list of character vectors,
+   one for each gene set;
+ \item \Rfunarg{...}: any other argument to be passed to lower level functions, including 
+   the lower level  enrichment function to be used (like the \Rfunction{geneSetTest} function
+   from the \Rpackage{limma} package, which is used as the default);
+ \item \Rfunarg{absolute}: logical specifying whether the absolute values of the ranking statistics 
+   should be used in the test (the default being TRUE);
+ \item \Rfunarg{gseFunc}: a function to perform GSE analysis, when not specified (the default) the
+   \Rfunction{geneSetTest} from the \Rpackage{limma} package is used. When a function is specified,
+   the membership of the analyzed genes to a FGS, and the ranking statistics must be defined in the
+   same way this is done for \Rfunction{geneSetTest}, and the new function must
+   return an integer (usually a p-value) (see the help for \Rfunction{geneSetTest}
+   in the \Rpackage{limma} package)
+ \end{itemize}
+
+Below are few examples to perform Wilcoxon rank-sum test over multiple FGS collections,
+and over multiple ranking statistics, usin the \Rfunction{runBatchGSE}.
+To this end we will use the {\bf KEGG} and {\bf GO} collections created above,
+and the separate and integrated gene-to-phenotype scores computed using the
+\Rfunction{computeDrStat}.
+The output of this function is a named list of lists, containing an element for each
+ranking statistics considered in the input. Each one of these elements, in turn,
+is another list, containing the GSE results for each collection sets.
+In the examples below we will therefore obtain a list of length one in the case
+ot the integrated gene-to-phenotype score, and a list of length four
+(on element for each genomic platform) in the case of the separate scores.
+For all the rankings we will obtain GSE result for both the collections of FGS.
+
+\subsection{INTEGRATION + GSE}
+The integrated gene-to-phenotype scores we have computed can be used to
+perform a GSE analysis. Below are reported few examples, using the default
+options, as well as passing several specific arguments to \Rfunction{geneSetTest}
+(see the relative help for details).
+
+\subsubsection{One-sided Wilcoxon rank-sum test using absolute ranking statistics}
+This can be accomplished by calling the \Rfunction{runBatchGSE} with default
+values, or by specifying each argument, as shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> gseABS.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList)
+> gseABS.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=TRUE, type="f", alternative="mixed")
+\end{Sinput}
+\end{Schunk}
+
+\subsubsection{One-sided Wilcoxon rank-sum test using signed ranking statistics}
+When the signed ranking statistics has a sign, it is possible to perform a one-sided
+test assensing both tails separately, as well as a two-sided test.
+This can be accomplished by passing the corresponding arguments 
+to \Rfunction{runBatchGSE}, as shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> gseUP.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=FALSE, type="t", alternative="up")
+> gseDW.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=FALSE, type="t", alternative="down")
+> gseBOTH.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=FALSE, type="t", alternative="either")
+\end{Sinput}
+\end{Schunk}
+
+\subsubsection{Performing a simulation-based GSE test}
+It is also possible to perform an enrichment analysis comparing each FGS
+to randomly selected gene lists of the same size of the FGS.
+In this case  the p-value is computed by simulation as the proportion 
+of times the mean of the statistics in the FGS is smaller (or larger) than in the 
+\Rfunarg{nsim} random simulated sets of genes.
+
+\begin{Schunk}
+\begin{Sinput}
+> gseABSsim.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				    absolute=TRUE, type="f", alternative="mixed",
++ 				    ranks.only=FALSE, nsim=1000)
+> gseUPsim.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				    absolute=FALSE, type="t", alternative="up",
++ 				    ranks.only=FALSE, nsim=1000)
+\end{Sinput}
+\end{Schunk}
+
+Results from this analysis are named lists of lists, as shown below:
+\begin{Schunk}
+\begin{Sinput}
+> str(gseUP.int)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated:List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.407 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.179 0.263 0.957
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+\end{Soutput}
+\begin{Sinput}
+> gseABSsim.int
+\end{Sinput}
+\begin{Soutput}
+$integrated
+$integrated$go
+                    GO:0004915.interleukin-6 receptor activity 
+                                                            NA 
+GO:0051902.negative regulation of mitochondrial depolarization 
+                                                            NA 
+          GO:0005732.small nucleolar ribonucleoprotein complex 
+                                                            NA 
+                 GO:2000191.regulation of fatty acid transport 
+                                                     0.5544456 
+                   GO:0004382.guanosine-diphosphatase activity 
+                                                            NA 
+
+$integrated$kegg
+ 00250.Alanine, aspartate and glutamate metabolism 
+                                                NA 
+                     00061.Fatty acid biosynthesis 
+                                                NA 
+        04620.Toll-like receptor signaling pathway 
+                                        0.64635365 
+                  04630.Jak-STAT signaling pathway 
+                                        0.65234765 
+00980.Metabolism of xenobiotics by cytochrome P450 
+                                        0.04695305 
+\end{Soutput}
+\end{Schunk}
+
+\subsubsection{Passsing alternative enrichment functions to  \Rfunction{runBatchGSE} }
+Below is show how to define and pass alternative enrichment functions 
+to \Rfunction{runBatchGSE}.
+We will first show how to use the \Rpackage{limma} \Rfunction{wilcoxGST} function,
+which is a synonym for \Rfunction{geneSetTest} using \Rfunarg{ranks.only=TRUE}
+and \Rfunarg{type="t"}.
+
+\begin{Schunk}
+\begin{Sinput}
+> library(limma)
+> gseUP.int.2 <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=FALSE, gseFunc=wilcoxGST, alternative="up")
+\end{Sinput}
+\end{Schunk}
+
+As shown below this approach will return the same results
+obtained with \Rfunction{geneSetTest} passing appropriate arguments.
+
+\begin{Schunk}
+\begin{Sinput}
+> str(gseUP.int.2)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated:List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.407 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.179 0.263 0.957
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+\end{Soutput}
+\begin{Sinput}
+> all(gseUP.int.2$go==gseUP.int$go)
+\end{Sinput}
+\begin{Soutput}
+[1] TRUE
+\end{Soutput}
+\end{Schunk}
+
+We can finally also pass any new user-defined enrichment function,
+provided that the arguments are passed in the same way as with
+\Rfunction{geneSetTest}, as shown below using the Fisher's exact test,
+and a  threshold for defining the list of differentially expressed genes.
+
+\begin{Schunk}
+\begin{Sinput}
+> gseFunc <- function (selected, statistics, threshold) {
++ 	diffExpGenes <- statistics > threshold
++ 	tab <- table(diffExpGenes, selected)
++ 	pVal <- fisher.test(tab)[["p.value"]]
++ 	}
+> gseUP.int.3 <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
++ 				 absolute=FALSE, gseFunc=gseFunc, threshold=7.5)
+\end{Sinput}
+\end{Schunk}
+
+As shown below this approach will test for over-represtation of the
+a specific gene set within the genes defined as differentially expressed
+(in our example the genes showing an integrated association score
+larger than 7.5). Results are somewhat comparable to what obtained
+using the Wilcoxon rank-sum test.
+
+\begin{Schunk}
+\begin{Sinput}
+> str(gseUP.int.3)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated:List of 2
+  ..$ go  : Named num [1:5] NA NA NA 1 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 1 1 1
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+\end{Soutput}
+\begin{Sinput}
+> data.frame(fisher=gseUP.int.3$integrated$kegg,wilcoxon=gseUP.int$integrated$kegg)
+\end{Sinput}
+\begin{Soutput}
+                                                   fisher  wilcoxon
+00250.Alanine, aspartate and glutamate metabolism      NA        NA
+00061.Fatty acid biosynthesis                          NA        NA
+04620.Toll-like receptor signaling pathway              1 0.1790416
+04630.Jak-STAT signaling pathway                        1 0.2626014
+00980.Metabolism of xenobiotics by cytochrome P450      1 0.9572340
+\end{Soutput}
+\end{Schunk}
+
+\subsection{GSE + INTEGRATION}
+The individual gene-to-phenotype scores computed for each platform
+can be similarly used to perform separate GSE analyses for each considered
+genomic platform, applying the same code and functions used to perform
+GSE analysis in the {\bf INTEGRATION + GSE} approach above.
+
+\begin{Schunk}
+\begin{Sinput}
+> gseABS.sep <- runBatchGSE(dataList=bicStatSep, fgsList=fgsList)
+\end{Sinput}
+\end{Schunk}
+
+This step of GSE analysis on separate platform is then followed 
+by GSE results integration, which is achieved using the 
+\Rfunction{combineGSE} function, which summarizes the
+individual p-values from the  tests.
+To this end different methods are available, including the computation
+of the geometric or arithmetic  means, the use of the median, 
+the selection of the minimun or the maximum p-value, and
+the random selection (respectively \Rfunarg{geometricMean},
+\Rfunarg{mean}, \Rfunarg{median}, \Rfunarg{min}, \Rfunarg{max},
+and \Rfunarg{random}). Few examples are shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> gseABS.geoMean.sep <- combineGSE(gseABS.sep, method="geometricMean")
+> gseABS.max.sep <- combineGSE(gseABS.sep, method="max")
+\end{Sinput}
+\end{Schunk}
+
+Also in this case the results from the combination are named lists of lists,
+as shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> names(gseABS.sep)
+\end{Sinput}
+\begin{Soutput}
+[1] "dat.affy"       "dat.agilent"    "dat.cnvHarvard"
+[4] "dat.cnvMskcc"  
+\end{Soutput}
+\begin{Sinput}
+> str(gseABS.sep)
+\end{Sinput}
+\begin{Soutput}
+List of 4
+ $ dat.affy      :List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.55 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.387 0.942 0.138
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+ $ dat.agilent   :List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.341 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.87954 0.53002 0.00854
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+ $ dat.cnvHarvard:List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.118 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.977 0.16 0.899
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+ $ dat.cnvMskcc  :List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.566 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.934 0.721 0.527
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+\end{Soutput}
+\begin{Sinput}
+> str(gseABS.geoMean.sep)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ combinedScore:List of 2
+  ..$ go  : Named num [1:5] NA NA NA 0.335 NA
+  .. ..- attr(*, "names")= chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  ..$ kegg: Named num [1:5] NA NA 0.747 0.49 0.154
+  .. ..- attr(*, "names")= chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+\end{Soutput}
+\begin{Sinput}
+> gseABS.geoMean.sep
+\end{Sinput}
+\begin{Soutput}
+$combinedScore
+$combinedScore$go
+                    GO:0004915.interleukin-6 receptor activity 
+                                                            NA 
+GO:0051902.negative regulation of mitochondrial depolarization 
+                                                            NA 
+          GO:0005732.small nucleolar ribonucleoprotein complex 
+                                                            NA 
+                 GO:2000191.regulation of fatty acid transport 
+                                                     0.3346236 
+                   GO:0004382.guanosine-diphosphatase activity 
+                                                            NA 
+
+$combinedScore$kegg
+ 00250.Alanine, aspartate and glutamate metabolism 
+                                                NA 
+                     00061.Fatty acid biosynthesis 
+                                                NA 
+        04620.Toll-like receptor signaling pathway 
+                                         0.7466514 
+                  04630.Jak-STAT signaling pathway 
+                                         0.4901592 
+00980.Metabolism of xenobiotics by cytochrome P450 
+                                         0.1537194 
+\end{Soutput}
+\end{Schunk}
+
+\subsection{Multiple testing correction}
+Finally the \Rfunction{adjustPvalGSE} enables to adjust the
+p-values computed by the \Rfunction{runBatchGSE}.
+This functions is an interface to the \Rfunction{mt.rawp2adjp}
+function from the \Rpackage{multtest} package.
+
+\begin{Schunk}
+\begin{Sinput}
+> gseABS.int.BH <- adjustPvalGSE(gseABS.int)
+> gseABS.int.holm <- adjustPvalGSE(gseABS.int, proc = "Holm")
+\end{Sinput}
+\end{Schunk}
+
+Also in this case the results after the adjustment are named lists of lists,
+as shown below:
+
+\begin{Schunk}
+\begin{Sinput}
+> names(gseABS.int.BH)
+\end{Sinput}
+\begin{Soutput}
+[1] "integrated"
+\end{Soutput}
+\begin{Sinput}
+> names(gseABS.int.holm)
+\end{Sinput}
+\begin{Soutput}
+[1] "integrated"
+\end{Soutput}
+\begin{Sinput}
+> str(gseABS.int.BH)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated:List of 2
+  ..$ go  : num [1:5, 1:2] NA NA NA 0.598 NA ...
+  .. ..- attr(*, "dimnames")=List of 2
+  .. .. ..$ : chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  .. .. ..$ : chr [1:2] "rawp" "BH"
+  ..$ kegg: num [1:5, 1:2] NA NA 0.8255 0.7448 0.0431 ...
+  .. ..- attr(*, "dimnames")=List of 2
+  .. .. ..$ : chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+  .. .. ..$ : chr [1:2] "rawp" "BH"
+\end{Soutput}
+\begin{Sinput}
+> str(gseABS.int.holm)
+\end{Sinput}
+\begin{Soutput}
+List of 1
+ $ integrated:List of 2
+  ..$ go  : num [1:5, 1:2] NA NA NA 0.598 NA ...
+  .. ..- attr(*, "dimnames")=List of 2
+  .. .. ..$ : chr [1:5] "GO:0004915.interleukin-6 receptor activity" "GO:0051902.negative regulation of mitochondrial depolarization" "GO:0005732.small nucleolar ribonucleoprotein complex" "GO:2000191.regulation of fatty acid transport" ...
+  .. .. ..$ : chr [1:2] "rawp" "Holm"
+  ..$ kegg: num [1:5, 1:2] NA NA 0.8255 0.7448 0.0431 ...
+  .. ..- attr(*, "dimnames")=List of 2
+  .. .. ..$ : chr [1:5] "00250.Alanine, aspartate and glutamate metabolism" "00061.Fatty acid biosynthesis" "04620.Toll-like receptor signaling pathway" "04630.Jak-STAT signaling pathway" ...
+  .. .. ..$ : chr [1:2] "rawp" "Holm"
+\end{Soutput}
+\end{Schunk}
+
+%\section{Discussion}
+
+%\section{Conclusion}
+
+\section{System Information}
+Session information:
+
+\begin{Schunk}
+\begin{Sinput}
+> sessionInfo()
+\end{Sinput}
+\begin{Soutput}
+R Under development (unstable) (2011-08-10 r56704)
+Platform: x86_64-apple-darwin10.8.0/x86_64 (64-bit)
+
+locale:
+[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods  
+[7] base     
+
+other attached packages:
+[1] limma_3.9.16          GO.db_2.5.0           KEGG.db_2.5.0        
+[4] org.Hs.eg.db_2.5.0    RSQLite_0.9-4         DBI_0.2-5            
+[7] AnnotationDbi_1.15.16 RTopper_0.99.2        Biobase_2.13.9       
+
+loaded via a namespace (and not attached):
+[1] IRanges_1.11.26 MASS_7.3-14     multtest_2.9.1  splines_2.14.0 
+[5] survival_2.36-9 tools_2.14.0   
+\end{Soutput}
+\end{Schunk}
+
+\pagebreak
+\section{References}
+   \bibliographystyle{plain}
+   \bibliography{./RTopper.bib}
+
+\end{document}
+
+

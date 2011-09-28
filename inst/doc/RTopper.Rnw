@@ -1,0 +1,521 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Luigi Marchionni
+%% August 21 2008
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%% Begin Document
+\documentclass[11pt]{article}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%% Preamble
+\input{preamble}
+
+%% Document layout
+\parindent 0in
+\setpapersize{USletter}
+\setmarginsrb{1truein}{0.5truein}{1truein}{0.5truein}{16pt}{30pt}{0pt}{20truept}
+\setlength{\emergencystretch}{2em}
+
+\usepackage{Sweave}
+
+%\VignetteIndexEntry{RTopper user's manual}
+
+%% New commands for R stuff
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{\texttt{#1}}}
+\newcommand{\Rclass}[1]{{\texttt{#1}}}
+\newcommand{\Rmethod}[1]{{\texttt{#1}}}
+\newcommand{\Rfunarg}[1]{{\texttt{#1}}}
+
+\begin{document}
+
+\title{The RTopper package: perform run Gene Set Enrichment across genomic platforms}
+
+\author{Luigi Marchionni \\
+Department of Oncology \\
+Johns Hopkins University \\
+email: \texttt{marchion@jhu.edu}}
+
+\singlespacing
+\maketitle
+\tableofcontents
+
+<<start,eval=TRUE,echo=FALSE,cache=FALSE,>>=
+options(width=70)
+rm(list=ls())
+@ 
+
+\section{Overview}
+Gene Set Enrichment (GSE) analysis has been widely use to assist the  interpretation
+of gene expression data. We propose here to apply GSE for the integration of genomic 
+data obtained from distinct analytical platform.
+
+In the present implementation of the \Rpackage{RTopper} GSE analysis is performed
+using the \Rfunction{geneSetTest} function from the \Rpackage{limma} package
+\cite{Smyth2005a,Smyth2004,Smyth2005}.
+This function enables testing the hypothesis that a specific set of genes
+(a Functional Gene Set, FGS) is more highly ranked on a given statistics.
+In particular this functions computes a p-value for each FGS by one 
+or two-sided Wilcoxon rank-sum test. Alternative user-defined functions
+can also be used.
+
+Furthermore multiple hypothesis testing correction is achieved by
+applying the Benjamini and Hochberg method \cite{Benjamini1995}
+as implemented in the \Rpackage{multtest} R/Bioconductor package.
+Overall, this approach is conceptually analogous to Gene Set Enrichment Analysis (GSEA),
+as proposed by Mootha and colleagues \cite{Mootha2003a,Subramanian2005}.
+
+The integration can be achieved through two distinct approaches:
+\begin{enumerate}
+\item {\bf GSE + INTEGRATION}: Separate GSE analysisn on the 
+  individual genomic platforms followed by GSE results integration;
+\item {\bf INTEGRATION + GSE}: Integration of genomic data measurement 
+  using a logistic model followed by GSE analysis;
+\end{enumerate}
+
+\section{RTopper data structure}
+In this tutorial we demonstrate the functionality of \Rpackage{RTopper} package.
+To this end we will make use of simplified data generated within 
+The Cancer Genome Atlas (TCGA) project,
+using Glioblastoma Multiforme (GBM) genomics data obtained from the same
+patients' cohort using distinct platforms, including Differential Gene Expression (DGE),
+Copy Number Variation (CNV), and Differential Methylation (DM).
+This data is included with the \Rpackage{RTopper} package as the dataset \texttt{exampleData},
+which consists of genomic measurements (the list \Robject{dat}) 
+for 500 genes (in rows) and 95 patients (in columns) from 4 distinct platforms:
+\begin{enumerate}
+  \item DGE obtained using Affymetrix;
+  \item DGE obtained using Agilent;
+  \item CNV data generated ad Harvard;
+  \item CNV data generated ad the MSKCC;
+\end{enumerate}
+
+The phenotypic class for each patient is defined in the a data.frame \Robject{pheno}
+consisting of 95 rows (patients, {\it pheno\$Sample}) and 2 columns, the first being patients identifiers,
+and the second variable giving the group indicator ({\it pheno\$Class}).
+
+To load the data set type \texttt{data(exampleData)}, and to view a description of this 
+data type \texttt{?exampleData}. The structure of the data is shown below:
+
+<<loadData,eval=TRUE,echo=TRUE,cache=FALSE>>=
+library(RTopper)
+data(exampleData)
+ls()
+class(dat)
+names(dat)
+sapply(dat,class)
+sapply(dat,dim)
+dim(pheno)
+str(pheno)
+@
+
+In summary to perform the analysis with functions from \Rpackage{RTopper}
+the genomic data used as input must be in the following format:
+\begin{enumerate}
+ \item {\bf Genomic measurements}: a list of data.frames, in which each list item corresponds 
+  to a genomic platform, and comprises a data.frame with rows being genes and columns patients;
+ \item {\bf Phenotype data}: a data.frame with 2 columns: patients and their phenotypes;
+ \item The number of columns of the {\it Genomic measurements} data.frames must match the number
+   of rows of the {\it Phenotype data};
+ \item The same set of genes must be measured in each platform and gene labels must be stored as rownames;
+\end{enumerate}
+
+Below are shown the first 6 rows and 4  columns of each data.frame contained in \texttt{dat},
+which share the same genes (shown for some of the possible combinations).
+Similarly column names in the \Robject{dat} data.frames correspond to rownames of \Robject{pheno}.
+
+<<strData,eval=TRUE,echo=TRUE,cache=FALSE>>=
+###data structure
+lapply(dat,function(x) head(x)[,1:3])
+sum(rownames(dat[[1]])%in%rownames(dat[[2]]))
+sum(rownames(dat[[2]])%in%rownames(dat[[3]]))
+@
+
+\subsection{Creation of Functional Gene Sets}
+Functional Gene Sets (FGS) are list of genes that share a specific biological function.
+Examples of FGS are genes that operate in the same signaling pathway 
+({\it i.e.} Notch signaling genes), or that share the same biological function
+({\it i.e.} Cell adhesion genes).
+FGS can be retrieved from various database, or can be construncted {\it ad hoc}.
+A convenient source of FGS are the R-Bioconductor metaData packages,
+and S4 classes and methods for handling FGS are provided by the \Rpackage{GSEABase}
+package. Below is shown a simple way to extract FGS from the human genome
+metaData package \Rpackage{org.Hs.eg.db}.
+As a general rule the name of the metaData package, without the \texttt{.db} extension,
+can be used a function to see the content of the package, as shown below:
+
+<<metaData,eval=TRUE,echo=TRUE,cache=FALSE>>=
+library(org.Hs.eg.db)
+org.Hs.eg()
+@ 
+
+For instance the \texttt{org.Hs.egGO2ALLEGS} environment contains the mapping
+of all ENTREZ Gene identifiers to the {\bf Gene Ontology Terms} \cite{Ashburner2000},
+while \texttt{org.Hs.egPATH2EG} maps the identifiers to {\bf KEGG} 
+pathways \cite{Kanehisa2004}.
+The corresponding lists of FGS can be retrieve from the corresponding environments
+using the the R command \texttt{as.list()}, as shown below for KEGG and GO:
+
+<<listFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
+kegg <- as.list(org.Hs.egPATH2EG)
+go <- as.list(org.Hs.egGO2ALLEGS)
+length(kegg)
+length(go)
+str(kegg[1:5])
+names(kegg)[1:5]
+str(go[1:5])
+names(go)[1:5]
+@
+
+In the \Robject{kegg} list genes are identified by their ENTREZ Gene identifiers,
+while in the \Robject{dat} genes are identified by their Gene Symbol.
+Below is an example of the code that can be used to perform the identifiers conversion,
+using only a subset of KEGG and GO FGS:
+
+<<convertIDs,eval=TRUE,echo=TRUE,cache=FALSE>>=
+kegg <- lapply(kegg[sample(1:length(kegg),5)],function(x) unique(unlist(mget(x,org.Hs.egSYMBOL))))
+go <- lapply(go[sample(1:length(go),5)],function(x) unique(unlist(mget(x,org.Hs.egSYMBOL))))
+str(kegg)
+str(go)
+@ 
+
+Finally, it is also possible to annotate FGS, mapping pathways identifiers to pathway names,
+as shown below for KEGG, using the \Rpackage{KEGG.db}.
+
+<<annotateFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
+library(KEGG.db)
+KEGG()
+names(kegg) <- paste(names(kegg),unlist(mget(names(kegg),KEGGPATHID2NAME)),sep=".")
+names(kegg)
+@ 
+
+Similarly GO Terms can be retrieved from the \Rpackage{GO.db}
+(please refer to the vignettes of the corresponding packages for details).
+
+<<listFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
+library(GO.db)
+GO()
+names(go) <- paste(names(go),Term(names(go)),sep=".")
+names(go)
+@ 
+
+Finally we can be combine the two FGS collections into a named list for further used
+in GSE analysis (see below).
+
+<<listFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
+fgsList <- list(go=go,kegg=kegg)
+@ 
+
+\section{Data analysis with RTopper}
+To compute gene-to-phenotype association scores the first step required 
+is the convertion of the data into a list, where each list item corresponds to a gene, 
+and comprises a data.frame with the rows being patients, and columns being measurements 
+for each data type, along with the class phenotype ({\it the response}).
+Importantly each element of the list with the data should have the same genes and patients.
+
+The \Rfunction{convertToDr} function is used to make such conversion.
+Below is a short description of the arguments to this function:
+\begin{itemize}
+  \item \Rfunarg{dataIntersection}: a list of data.frames containing the same set of patients(columns) and genes (rows)
+  \item \Rfunarg{response}: a data.frame indicating patients' phenotypic class;
+  \item \Rfunarg{nPlatforms}: the number of platforms;
+\end{itemize}
+
+This can be achieved as follows using our examples data:
+
+<<convertToDr,eval=TRUE,echo=TRUE,cache=FALSE>>=
+dataDr <- convertToDr(dat, pheno, 4)
+class(dataDr)
+length(dataDr)
+names(dataDr)[1:5]
+str(dataDr[1:2])
+@ 
+
+It is now possible to compute gene-to-phenotype association scores, using as input the
+gene-centered list produced by \Rfunction{convertToDr}.
+Therefore the \Rfunction{computeDrStat} function assumes that each gene-centered 
+data.frame contains a column (the last one) called \texttt{'response'}, 
+as created by the \Rfunction{convertToDr}.
+Below is a short description of the arguments to this function:
+
+\begin{itemize}
+  \item \Rfunarg{data}: a list of data.frames, one for each gene analyzed, contining the the genomic
+    measurements from all platforms (by column) for all the patients (by row), along with the phenotypic
+    response;
+  \item \Rfunarg{columns}: a numeric vector indicating column indexes corresponding the genomic measurements
+    to be used for computing the gene-to-phenotype association scores;
+    the default is \texttt{columns = c(1:(ncol(data) - 1))}, assuming the phenotypic response to be the last
+    column;
+  \item \Rfunarg{method}: the method used to compute the association score;
+  \item \Rfunarg{integrate}: logical, whether an integrated gene-to-phenotype score should be computed,
+    or separate scores for each platform/data sets specified by \Rfunarg{columns};
+  \end{itemize}
+
+In the current implementation of the \Rpackage{RTopper} there are three methods for computing 
+gene-to-phenotype association scores:
+\begin{enumerate}
+  \item \Rmethod{dev}: this approach computes the score as the difference of deviances
+    (as described in Tyekucheva et al, manuscript under review \cite{Tyekucheva2011});
+  \item \Rmethod{aic}: this approach computes the score as the Akaike information criterion
+    for model selection;
+  \item \Rmethod{bic}: this approach computes the score as the penalized likelihood ratio;
+\end{enumerate}
+
+\subsection{Integrated Gene-to-Phenotype score computation}
+This approach first integrates genomic data across platform, and subsequently
+perform GSE to identify the FGS most strongly associated with the integrated score.
+Below is an example of application to compute the gene-to-phenotype association
+scores for 4 data type simultaneously:
+
+<<integratedScore,eval=TRUE,echo=TRUE,cache=FALSE>>=
+bicStatInt <- computeDrStat(dataDr, columns = c(1:4), method="bic", integrate = TRUE)
+names(bicStatInt)
+str(bicStatInt)
+@ 
+
+%%%####HERE
+
+\subsection{Separate Gene-to-Phenotype score computation}
+This approach first computes computes gene-to-phenotype score separately for each platform,
+uses the scores to perform separate GSE analysis in each platform for identifying the FGS most 
+strongly associated with the score, and finally integrates the results from GSE analysis,
+Below is an example of this approach:
+
+<<separateScore,eval=TRUE,echo=TRUE,cache=FALSE>>=
+bicStatSep <- computeDrStat(dataDr, columns = c(1:4), method="bic", integrate = FALSE)
+names(bicStatSep)
+str(bicStatSep)
+@ 
+
+\subsection{Gene Set Enrichment using integrated and separate score}
+After the gene-to-phenotype scores have been obtained it is possible to perform
+a GSE analysis. To this end we will use the \Rfunction{runBatchGSE} function,
+as shown below. This function enables to perform GSE analysis over multiple collections
+of FGS, and over multiple ranking statistics.
+In the current implementation of the \Rfunction{runBatchGSE} the default is
+performing the enrichment analysis using the \Rfunction{geneSetTest} function 
+from the \Rpackage{limma} package, and most of the arguments passed to 
+\Rpackage{runBatchGSE} are indeed passed to \Rfunction{geneSetTest}
+(see the relative help for the details).
+
+As an alternative the user can also define his own function to test for FGS enrichment,
+passing the selection of genes within the FGS and the ranking ranking statistics
+in the same way as done for \Rfunction{geneSetTest}.
+In this tutorial we apply \Rfunction{geneSetTest} in order to perform a
+Wilcoxon rank-sum test, using the absolute value of the gene-to-phenotype scores 
+as the ranking statistics.
+
+<<runGSEbatchArgs,eval=TRUE,echo=TRUE,cache=FALSE>>=
+args(runBatchGSE)
+@ 
+
+Below a short description of the arguments that can be passed to this function:
+\begin{itemize}
+ \item \Rfunarg{dataList}: a list containing gene-to-phenotype scores to be used
+   as ranking statistics in the GSE analysis;
+ \item \Rfunarg{fgsList}: a list of FGS collection, in which each element is a list of character vectors,
+   one for each gene set;
+ \item \Rfunarg{...}: any other argument to be passed to lower level functions, including 
+   the lower level  enrichment function to be used (like the \Rfunction{geneSetTest} function
+   from the \Rpackage{limma} package, which is used as the default);
+ \item \Rfunarg{absolute}: logical specifying whether the absolute values of the ranking statistics 
+   should be used in the test (the default being TRUE);
+ \item \Rfunarg{gseFunc}: a function to perform GSE analysis, when not specified (the default) the
+   \Rfunction{geneSetTest} from the \Rpackage{limma} package is used. When a function is specified,
+   the membership of the analyzed genes to a FGS, and the ranking statistics must be defined in the
+   same way this is done for \Rfunction{geneSetTest}, and the new function must
+   return an integer (usually a p-value) (see the help for \Rfunction{geneSetTest}
+   in the \Rpackage{limma} package)
+ \end{itemize}
+
+Below are few examples to perform Wilcoxon rank-sum test over multiple FGS collections,
+and over multiple ranking statistics, usin the \Rfunction{runBatchGSE}.
+To this end we will use the {\bf KEGG} and {\bf GO} collections created above,
+and the separate and integrated gene-to-phenotype scores computed using the
+\Rfunction{computeDrStat}.
+The output of this function is a named list of lists, containing an element for each
+ranking statistics considered in the input. Each one of these elements, in turn,
+is another list, containing the GSE results for each collection sets.
+In the examples below we will therefore obtain a list of length one in the case
+ot the integrated gene-to-phenotype score, and a list of length four
+(on element for each genomic platform) in the case of the separate scores.
+For all the rankings we will obtain GSE result for both the collections of FGS.
+
+\subsection{INTEGRATION + GSE}
+The integrated gene-to-phenotype scores we have computed can be used to
+perform a GSE analysis. Below are reported few examples, using the default
+options, as well as passing several specific arguments to \Rfunction{geneSetTest}
+(see the relative help for details).
+
+\subsubsection{One-sided Wilcoxon rank-sum test using absolute ranking statistics}
+This can be accomplished by calling the \Rfunction{runBatchGSE} with default
+values, or by specifying each argument, as shown below:
+
+<<runBatchGSE.int1,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseABS.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList)
+gseABS.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=TRUE, type="f", alternative="mixed")
+@ 
+
+\subsubsection{One-sided Wilcoxon rank-sum test using signed ranking statistics}
+When the signed ranking statistics has a sign, it is possible to perform a one-sided
+test assensing both tails separately, as well as a two-sided test.
+This can be accomplished by passing the corresponding arguments 
+to \Rfunction{runBatchGSE}, as shown below:
+
+<<runBatchGSE.int2,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseUP.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=FALSE, type="t", alternative="up")
+gseDW.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=FALSE, type="t", alternative="down")
+gseBOTH.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=FALSE, type="t", alternative="either")
+@ 
+
+\subsubsection{Performing a simulation-based GSE test}
+It is also possible to perform an enrichment analysis comparing each FGS
+to randomly selected gene lists of the same size of the FGS.
+In this case  the p-value is computed by simulation as the proportion 
+of times the mean of the statistics in the FGS is smaller (or larger) than in the 
+\Rfunarg{nsim} random simulated sets of genes.
+
+<<runBatchGSE.int3,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseABSsim.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				    absolute=TRUE, type="f", alternative="mixed",
+				    ranks.only=FALSE, nsim=1000)
+gseUPsim.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				    absolute=FALSE, type="t", alternative="up",
+				    ranks.only=FALSE, nsim=1000)
+@ 
+
+Results from this analysis are named lists of lists, as shown below:
+<<runBatchGSE.format1,echo=TRUE,eval=TRUE,cache=FALSE>>=
+str(gseUP.int)
+gseABSsim.int
+@ 
+
+\subsubsection{Passsing alternative enrichment functions to  \Rfunction{runBatchGSE} }
+Below is show how to define and pass alternative enrichment functions 
+to \Rfunction{runBatchGSE}.
+We will first show how to use the \Rpackage{limma} \Rfunction{wilcoxGST} function,
+which is a synonym for \Rfunction{geneSetTest} using \Rfunarg{ranks.only=TRUE}
+and \Rfunarg{type="t"}.
+
+<<runBatchGSE.altFunc,echo=TRUE,eval=TRUE,cache=FALSE>>=
+library(limma)
+gseUP.int.2 <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=FALSE, gseFunc=wilcoxGST, alternative="up")
+@ 
+
+As shown below this approach will return the same results
+obtained with \Rfunction{geneSetTest} passing appropriate arguments.
+
+<<runBatchGSE.format2,echo=TRUE,eval=TRUE,cache=FALSE>>=
+str(gseUP.int.2)
+all(gseUP.int.2$go==gseUP.int$go)
+@ 
+
+We can finally also pass any new user-defined enrichment function,
+provided that the arguments are passed in the same way as with
+\Rfunction{geneSetTest}, as shown below using the Fisher's exact test,
+and a  threshold for defining the list of differentially expressed genes.
+
+<<runBatchGSE.altFunc2,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseFunc <- function (selected, statistics, threshold) {
+	diffExpGenes <- statistics > threshold
+	tab <- table(diffExpGenes, selected)
+	pVal <- fisher.test(tab)[["p.value"]]
+	}
+gseUP.int.3 <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
+				 absolute=FALSE, gseFunc=gseFunc, threshold=7.5)
+@ 
+
+As shown below this approach will test for over-represtation of the
+a specific gene set within the genes defined as differentially expressed
+(in our example the genes showing an integrated association score
+larger than 7.5). Results are somewhat comparable to what obtained
+using the Wilcoxon rank-sum test.
+
+<<runBatchGSE.format3,echo=TRUE,eval=TRUE,cache=FALSE>>=
+str(gseUP.int.3)
+data.frame(fisher=gseUP.int.3$integrated$kegg,wilcoxon=gseUP.int$integrated$kegg)
+@ 
+
+\subsection{GSE + INTEGRATION}
+The individual gene-to-phenotype scores computed for each platform
+can be similarly used to perform separate GSE analyses for each considered
+genomic platform, applying the same code and functions used to perform
+GSE analysis in the {\bf INTEGRATION + GSE} approach above.
+
+<<runBatchGSE.separate,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseABS.sep <- runBatchGSE(dataList=bicStatSep, fgsList=fgsList)
+@ 
+
+This step of GSE analysis on separate platform is then followed 
+by GSE results integration, which is achieved using the 
+\Rfunction{combineGSE} function, which summarizes the
+individual p-values from the  tests.
+To this end different methods are available, including the computation
+of the geometric or arithmetic  means, the use of the median, 
+the selection of the minimun or the maximum p-value, and
+the random selection (respectively \Rfunarg{geometricMean},
+\Rfunarg{mean}, \Rfunarg{median}, \Rfunarg{min}, \Rfunarg{max},
+and \Rfunarg{random}). Few examples are shown below:
+
+<<combineGSE,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseABS.geoMean.sep <- combineGSE(gseABS.sep, method="geometricMean")
+gseABS.max.sep <- combineGSE(gseABS.sep, method="max")
+@ 
+
+Also in this case the results from the combination are named lists of lists,
+as shown below:
+
+<<combineGSE.format,echo=TRUE,eval=TRUE,cache=FALSE>>=
+names(gseABS.sep)
+str(gseABS.sep)
+str(gseABS.geoMean.sep)
+gseABS.geoMean.sep
+@
+
+\subsection{Multiple testing correction}
+Finally the \Rfunction{adjustPvalGSE} enables to adjust the
+p-values computed by the \Rfunction{runBatchGSE}.
+This functions is an interface to the \Rfunction{mt.rawp2adjp}
+function from the \Rpackage{multtest} package.
+
+<<adjustP,echo=TRUE,eval=TRUE,cache=FALSE>>=
+gseABS.int.BH <- adjustPvalGSE(gseABS.int)
+gseABS.int.holm <- adjustPvalGSE(gseABS.int, proc = "Holm")
+@ 
+
+Also in this case the results after the adjustment are named lists of lists,
+as shown below:
+
+<<adjusted.format,echo=TRUE,eval=TRUE,cache=FALSE>>=
+names(gseABS.int.BH)
+names(gseABS.int.holm)
+str(gseABS.int.BH)
+str(gseABS.int.holm)
+@ 
+
+%\section{Discussion}
+
+%\section{Conclusion}
+
+\section{System Information}
+Session information:
+
+<<sessioInfo,echo=TRUE,eval=TRUE,cache=FALSE>>=
+sessionInfo()
+@ 
+
+\pagebreak
+\section{References}
+   \bibliographystyle{plain}
+   \bibliography{./RTopper.bib}
+
+\end{document}
+
+
