@@ -514,7 +514,7 @@ sessionInfo()
 \pagebreak
 \section{References}
    \bibliographystyle{plain}
-   \bibliography{./RTopper.bib}
+   \bibliography{./RTopper}
 
 \end{document}
 
