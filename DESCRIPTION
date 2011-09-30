@@ -1,10 +1,10 @@
 Package: RTopper
 Type: Package
 Title: This package is designed to perform Gene Set Analysis across multiple genomic platforms
-Version: 0.99.3
+Version: 0.99.2
 Date: 2011-09-14
-Author: Luigi Marchionni <marchion@jhu.edu>,  Svitlana Tyekucheva <svitlana@jimmy.harvard.edu>
-Maintainer: Luigi Marchionni <marchion@jhu.edu>, Svitlana Tyekucheva <svitlana@jimmy.harvard.edu>
+Author: Luigi Marchionni <marchion@jhu.edu>, Svitlana Tyekucheva <svitlana@jimmy.harvard.edu>
+Maintainer: Luigi Marchionni <marchion@jhu.edu>
 Depends: R (>= 2.11.0), Biobase
 Imports: limma, multtest
 Suggests: limma, org.Hs.eg.db, KEGG.db

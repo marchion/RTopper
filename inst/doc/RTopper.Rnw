@@ -43,7 +43,7 @@ email: \texttt{marchion@jhu.edu}}
 \tableofcontents
 
 <<start,eval=TRUE,echo=FALSE,cache=FALSE,>>=
-options(width=70)
+options(width=50)
 rm(list=ls())
 @ 
 
@@ -514,7 +514,7 @@ sessionInfo()
 \pagebreak
 \section{References}
    \bibliographystyle{plain}
-   \bibliography{./RTopper}
+   \bibliography{RTopper}
 
 \end{document}
 
