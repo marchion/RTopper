@@ -1,13 +1,13 @@
 Package: RTopper
 Type: Package
 Title: This package is designed to perform Gene Set Analysis across multiple genomic platforms
-Version: 1.5.0
+Version: 1.5.1
 Date: 2011-09-14
 Author: Luigi Marchionni <marchion@jhu.edu>, Svitlana Tyekucheva <svitlana@jimmy.harvard.edu>
 Maintainer: Luigi Marchionni <marchion@jhu.edu>
 Depends: R (>= 2.11.0), Biobase
 Imports: limma, multtest
-Suggests: limma, org.Hs.eg.db, KEGG.db
+Suggests: limma, org.Hs.eg.db, KEGG.db, GO.db
 Description: the RTopper package is designed to perform and integrate gene set enrichment results across multiple genomic platforms.
 License: GPL (>= 3)
 biocViews: Microarray
