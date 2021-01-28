@@ -106,7 +106,8 @@ data(fgsList)
 gseABS.int <- runBatchGSE(dataList=intScores, fgsList=fgsList)
 
 ###run GSE analysis in batch with alternative parameters
-gseABS.sep <- runBatchGSE(dataList=sepScores, fgsList=fgsList, absolute=FALSE, type="t", alternative="up")
+gseABS.sep <- runBatchGSE(dataList=sepScores, fgsList=fgsList, 
+        absolute=FALSE, type="t", alternative="up")
 
 ###run GSE analysis in batch passing an enrichment function
 gseUP.int.2 <- runBatchGSE(dataList=intScores, fgsList=fgsList,
