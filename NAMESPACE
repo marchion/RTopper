@@ -5,6 +5,8 @@ import(Biobase)
 importFrom(limma, geneSetTest)
 importFrom(limma, wilcoxGST)
 importFrom(multtest, mt.rawp2adjp)
+importFrom("stats", "AIC", "binomial", "glm", "median")
+importFrom("utils", "data")
 
 ###EXPORT
 export(convertToDr,

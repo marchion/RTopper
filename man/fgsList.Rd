@@ -37,9 +37,9 @@
   (use the \code{\link[org.Hs.eg.db]{org.Hs.eg}} function
   to see the content);
   These FGS were annotated using data from
-  \code{GO.db} and \code{KEGG.db} packages
+  \code{GO.db} and \code{KEGGREST} packages
   (use the \code{\link[GO.db]{GO}} and
-  \code{\link[KEGG.db]{KEGG}} functions to see the content).
+  \code{\link[KEGGREST]{keggGet}} functions to see the content).
 }
 
 \examples{

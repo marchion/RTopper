@@ -5,10 +5,10 @@ Version: 1.25.0
 Date: 2011-09-14
 Author: Luigi Marchionni <marchion@jhu.edu>, Svitlana Tyekucheva <svitlana@jimmy.harvard.edu>
 Maintainer: Luigi Marchionni <marchion@jhu.edu>
-Depends: R (>= 2.11.0), Biobase
+Depends: R (>= 2.12.0), Biobase
 Imports: limma, multtest
-Suggests: limma, org.Hs.eg.db, KEGG.db, GO.db
+Suggests: org.Hs.eg.db, KEGGREST, GO.db
 Description: the RTopper package is designed to perform and integrate gene set enrichment results across multiple genomic platforms.
-License: GPL (>= 3)
+License: GPL (>= 3) + file LICENSE
 biocViews: Microarray
 LazyLoad: yes

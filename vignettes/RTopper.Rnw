@@ -69,7 +69,7 @@ as proposed by Mootha and colleagues \cite{Mootha2003a,Subramanian2005}.
 
 The integration can be achieved through two distinct approaches:
 \begin{enumerate}
-\item {\bf GSE + INTEGRATION}: Separate GSE analysisn on the 
+\item {\bf GSE + INTEGRATION}: Separate GSE analysis on the 
   individual genomic platforms followed by GSE results integration;
 \item {\bf INTEGRATION + GSE}: Integration of genomic data measurement 
   using a logistic model followed by GSE analysis;
@@ -138,7 +138,7 @@ Functional Gene Sets (FGS) are list of genes that share a specific biological fu
 Examples of FGS are genes that operate in the same signaling pathway 
 ({\it i.e.} Notch signaling genes), or that share the same biological function
 ({\it i.e.} Cell adhesion genes).
-FGS can be retrieved from various database, or can be construncted {\it ad hoc}.
+FGS can be retrieved from various database, or can be constructed {\it ad hoc}.
 A convenient source of FGS are the R-Bioconductor metaData packages,
 and S4 classes and methods for handling FGS are provided by the \Rpackage{GSEABase}
 package. Below is shown a simple way to extract FGS from the human genome
@@ -169,7 +169,7 @@ str(go[1:5])
 names(go)[1:5]
 @
 
-In the \Robject{kegg} list genes are identified by their ENTREZ Gene identifiers,
+In the \Robject{KEGG} list genes are identified by their ENTREZ Gene identifiers,
 while in the \Robject{dat} genes are identified by their Gene Symbol.
 Below is an example of the code that can be used to perform the identifiers conversion,
 using only a subset of KEGG and GO FGS:
@@ -182,13 +182,11 @@ str(go)
 @ 
 
 Finally, it is also possible to annotate FGS, mapping pathways identifiers to pathway names,
-as shown below for KEGG, using the \Rpackage{KEGG.db}.
+as shown below for KEGG, using the \Rpackage{KEGGRESt}.
 
 <<annotateFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
-library(KEGG.db)
-KEGG()
-names(kegg) <- paste(names(kegg),unlist(mget(names(kegg),KEGGPATHID2NAME)),sep=".")
-names(kegg)
+library(KEGGREST)
+names(kegg) <-  sapply(keggGet(paste0("hsa", names(kegg)[1:5])), "[[", "NAME")
 @ 
 
 Similarly GO Terms can be retrieved from the \Rpackage{GO.db}
@@ -205,12 +203,14 @@ Finally we can be combine the two FGS collections into a named list for further 
 in GSE analysis (see below).
 
 <<listFGS,eval=TRUE,echo=TRUE,cache=FALSE>>=
-fgsList <- list(go=go,kegg=kegg)
+fgsList <- list(go=go, kegg=kegg)
+
+fgsList$go
 @ 
 
 \section{Data analysis with RTopper}
 To compute gene-to-phenotype association scores the first step required 
-is the convertion of the data into a list, where each list item corresponds to a gene, 
+is the conversion of the data into a list, where each list item corresponds to a gene, 
 and comprises a data.frame with the rows being patients, and columns being measurements 
 for each data type, along with the class phenotype ({\it the response}).
 Importantly each element of the list with the data should have the same genes and patients.
@@ -241,7 +241,7 @@ as created by the \Rfunction{convertToDr}.
 Below is a short description of the arguments to this function:
 
 \begin{itemize}
-  \item \Rfunarg{data}: a list of data.frames, one for each gene analyzed, contining the the genomic
+  \item \Rfunarg{data}: a list of data.frames, one for each gene analyzed, containing the the genomic
     measurements from all platforms (by column) for all the patients (by row), along with the phenotypic
     response;
   \item \Rfunarg{columns}: a numeric vector indicating column indexes corresponding the genomic measurements
@@ -331,7 +331,7 @@ Below a short description of the arguments that can be passed to this function:
  \end{itemize}
 
 Below are few examples to perform Wilcoxon rank-sum test over multiple FGS collections,
-and over multiple ranking statistics, usin the \Rfunction{runBatchGSE}.
+and over multiple ranking statistics, using the \Rfunction{runBatchGSE}.
 To this end we will use the {\bf KEGG} and {\bf GO} collections created above,
 and the separate and integrated gene-to-phenotype scores computed using the
 \Rfunction{computeDrStat}.
@@ -339,7 +339,7 @@ The output of this function is a named list of lists, containing an element for 
 ranking statistics considered in the input. Each one of these elements, in turn,
 is another list, containing the GSE results for each collection sets.
 In the examples below we will therefore obtain a list of length one in the case
-ot the integrated gene-to-phenotype score, and a list of length four
+of the integrated gene-to-phenotype score, and a list of length four
 (on element for each genomic platform) in the case of the separate scores.
 For all the rankings we will obtain GSE result for both the collections of FGS.
 
@@ -361,7 +361,7 @@ gseABS.int <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
 
 \subsubsection{One-sided Wilcoxon rank-sum test using signed ranking statistics}
 When the signed ranking statistics has a sign, it is possible to perform a one-sided
-test assensing both tails separately, as well as a two-sided test.
+test assessing both tails separately, as well as a two-sided test.
 This can be accomplished by passing the corresponding arguments 
 to \Rfunction{runBatchGSE}, as shown below:
 
@@ -396,7 +396,7 @@ str(gseUP.int)
 gseABSsim.int
 @ 
 
-\subsubsection{Passsing alternative enrichment functions to  \Rfunction{runBatchGSE} }
+\subsubsection{Passing alternative enrichment functions to  \Rfunction{runBatchGSE} }
 Below is show how to define and pass alternative enrichment functions 
 to \Rfunction{runBatchGSE}.
 We will first show how to use the \Rpackage{limma} \Rfunction{wilcoxGST} function,
@@ -420,7 +420,7 @@ all(gseUP.int.2$go==gseUP.int$go)
 We can finally also pass any new user-defined enrichment function,
 provided that the arguments are passed in the same way as with
 \Rfunction{geneSetTest}, as shown below using the Fisher's exact test,
-and a  threshold for defining the list of differentially expressed genes.
+and a  threshold for defining the list of deferentially expressed genes.
 
 <<runBatchGSE.altFunc2,echo=TRUE,eval=TRUE,cache=FALSE>>=
 gseFunc <- function (selected, statistics, threshold) {
@@ -432,8 +432,8 @@ gseUP.int.3 <- runBatchGSE(dataList=bicStatInt, fgsList=fgsList,
 				 absolute=FALSE, gseFunc=gseFunc, threshold=7.5)
 @ 
 
-As shown below this approach will test for over-represtation of the
-a specific gene set within the genes defined as differentially expressed
+As shown below this approach will test for over-representation of the
+a specific gene set within the genes defined as deferentially expressed
 (in our example the genes showing an integrated association score
 larger than 7.5). Results are somewhat comparable to what obtained
 using the Wilcoxon rank-sum test.
@@ -459,7 +459,7 @@ by GSE results integration, which is achieved using the
 individual p-values from the  tests.
 To this end different methods are available, including the computation
 of the geometric or arithmetic  means, the use of the median, 
-the selection of the minimun or the maximum p-value, and
+the selection of the minimum or the maximum p-value, and
 the random selection (respectively \Rfunarg{geometricMean},
 \Rfunarg{mean}, \Rfunarg{median}, \Rfunarg{min}, \Rfunarg{max},
 and \Rfunarg{random}). Few examples are shown below:
