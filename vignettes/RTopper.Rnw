@@ -440,7 +440,10 @@ using the Wilcoxon rank-sum test.
 
 <<runBatchGSE.format3,echo=TRUE,eval=TRUE,cache=FALSE>>=
 str(gseUP.int.3)
-data.frame(fisher=gseUP.int.3$integrated$kegg,wilcoxon=gseUP.int$integrated$kegg)
+cat("Fisher:")
+gseUP.int.3$integrated$kegg
+cat("\n Wilcoxon:")
+gseUP.int$integrated$kegg
 @ 
 
 \subsection{GSE + INTEGRATION}
